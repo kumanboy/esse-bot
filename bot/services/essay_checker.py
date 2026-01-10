@@ -7,9 +7,6 @@ from typing import Optional, Any, List
 from dotenv import load_dotenv
 from openai import OpenAI, OpenAIError
 
-# =====================
-# ENV
-# =====================
 load_dotenv()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -17,9 +14,7 @@ OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5-mini")
 DEBUG_OPENAI = os.getenv("DEBUG_OPENAI", "0") == "1"
 
 if not OPENAI_API_KEY:
-    raise RuntimeError(
-        "OPENAI_API_KEY topilmadi. .env faylga OPENAI_API_KEY=... qo‘ying."
-    )
+    raise RuntimeError("OPENAI_API_KEY topilmadi. .env faylga OPENAI_API_KEY=... qo‘ying.")
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
@@ -307,49 +302,47 @@ def _get(obj: Any, key: str, default=None):
 
 def _extract_text(response: Any) -> Optional[str]:
     """
-    OpenAI Responses API uchun xavfsiz text extractor.
-    1) response.output_text (eng to‘g‘ri yo‘l)
-    2) response.output[] ichidan output_text bloklarini yig‘ish
+    1) Eng oson: response.output_text (SDK agregat qiladi)
+    2) Agar bo‘sh bo‘lsa: response.output ichidan output_text/refusal bloklarini yig‘amiz
     """
     txt = _get(response, "output_text", None)
 
+    # Ba'zan noto‘g‘ri property olinib qolsa (masalan response.text config),
+    # output_text string bo‘lishi kerak. Shuning uchun qat’iy tekshiramiz.
     if isinstance(txt, str) and txt.strip():
         return txt.strip()
 
-    parts: List[str] = []
-    output = _get(response, "output", None) or []
+    out_parts: List[str] = []
+    items = _get(response, "output", None) or []
 
-    for item in output:
-        if _get(item, "type") != "message":
+    for item in items:
+        item_type = _get(item, "type", None)
+        if item_type != "message":
             continue
 
         content = _get(item, "content", None) or []
         for block in content:
-            btype = _get(block, "type")
+            btype = _get(block, "type", None)
 
             if btype == "output_text":
-                t = _get(block, "text")
+                t = _get(block, "text", None)
                 if isinstance(t, str) and t.strip():
-                    parts.append(t)
+                    out_parts.append(t)
 
             elif btype == "refusal":
-                r = _get(block, "refusal")
+                r = _get(block, "refusal", None)
                 if isinstance(r, str) and r.strip():
-                    parts.append(r)
+                    out_parts.append(r)
 
-    joined = "\n".join(parts).strip()
+    joined = "\n".join(out_parts).strip()
     return joined if joined else None
 
 
-# =====================
-# MAIN API
-# =====================
 async def check_essay(topic: str, essay_text: str) -> str:
     """
-    Mavzu + esse matnini OpenAI'ga yuboradi
-    va Uzbek tilida qat’iy baholash natijasini qaytaradi.
+    Mavzu + esse matnini OpenAI'ga yuboradi va Uzbek tilida qat’iy baholashni qaytaradi.
+    Eslatma: GPT-5 oilasida temperature ishlatilmaydi (400 xato beradi).
     """
-
     user_prompt = f"""MAVZU:
 {topic}
 
@@ -370,10 +363,10 @@ ESSE MATNI:
         response = await asyncio.to_thread(_call_openai)
 
         if DEBUG_OPENAI:
-            print("🧠 OPENAI STATUS:", _get(response, "status"))
-            print("⚠️ INCOMPLETE:", _get(response, "incomplete_details"))
-            ot = _get(response, "output_text", "")
-            print("📏 OUTPUT LEN:", len(ot) if isinstance(ot, str) else 0)
+            print("STATUS:", _get(response, "status", None))
+            print("INCOMPLETE:", _get(response, "incomplete_details", None))
+            agg = _get(response, "output_text", "") or ""
+            print("LEN:", len(agg) if isinstance(agg, str) else 0)
 
         text = _extract_text(response)
         if not text:
@@ -382,11 +375,9 @@ ESSE MATNI:
         return text.strip()
 
     except OpenAIError as e:
-        # SDK xatolari: 400 / 401 / 429 / 500 ...
-        print("❌ OPENAI SDK ERROR:", repr(e))
-        raise RuntimeError("Esse tekshirishda texnik xatolik yuz berdi") from e
+        # OpenAI SDK xatolari (429, 400, 401, 500...)
+        raise RuntimeError(f"OPENAI ERROR: {e}") from e
 
     except Exception as e:
-        # Parsing / thread / env / boshqa xatolar
-        print("❌ ESSAY CHECKER ERROR:", repr(e))
-        raise RuntimeError("Esse tekshirishda texnik xatolik yuz berdi") from e
+        # boshqa texnik xatolar (parsing, thread, env, va h.k.)
+        raise RuntimeError(f"OPENAI ERROR: {e}") from e
