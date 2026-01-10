@@ -1,14 +1,6 @@
-# Telegram bot (aiogram v3)
-aiogram==3.4.1
+python-dotenv
+apscheduler
+aiogram
 
-# OpenAI SDK (Responses API compatible)
-openai==1.40.0
-
-# PostgreSQL async driver
-asyncpg==0.29.0
-
-# Scheduler
-apscheduler==3.10.4
-
-# Env loader
-python-dotenv==1.0.1
+openai
+asyncpg
