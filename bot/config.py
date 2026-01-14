@@ -29,3 +29,8 @@ CARD_INFO = (
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
     raise RuntimeError("OPENAI_API_KEY .env faylda topilmadi!")
+
+MONEY_ID = int(os.getenv("MONEY_ID"))
+if not MONEY_ID:
+    raise RuntimeError("MONEY_ID .env faylda topilmadi!")
+

@@ -1,12 +1,11 @@
-from typing import cast
 import time
 
 from aiogram import Router, F
-from aiogram.types import Message, PhotoSize, Document
+from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
 
 from bot.states import PaymentStates
-from bot.config import CARD_INFO, ADMIN_ID
+from bot.config import CARD_INFO, MONEY_ID
 from bot.keyboards.admin import admin_approval_kb
 from bot.keyboards.main import main_menu
 from bot.services.payments import create_payment
@@ -26,29 +25,36 @@ async def ask_for_payment(message: Message, state: FSMContext):
     await state.set_state(PaymentStates.waiting_for_receipt)
 
 
-
 @router.message(PaymentStates.waiting_for_receipt)
 async def receive_receipt(message: Message, state: FSMContext):
-    user_id = message.from_user.id
-    username = message.from_user.username or "username yo‘q"
-    print("🟢 RECEIPT HANDLER TRIGGERED")
+    user = message.from_user
+    user_id = user.id
+    username = user.username or "username yo‘q"
 
+    # ❌ Must be photo or document
     if message.photo is None and message.document is None:
         await message.answer("❌ Iltimos, check yoki screenshot yuboring.")
         return
 
     payment_id = f"{user_id}_{int(time.time())}"
 
-    caption = (
-        "🧾 Yangi to‘lov\n\n"
+    # ✅ SAFE user note (caption OR text OR empty)
+    user_note = message.caption or message.text or "(Izoh yo‘q)"
+
+    admin_caption = (
+        "🧾 YANGI TO‘LOV CHEKI\n\n"
         f"👤 User ID: {user_id}\n"
         f"👤 Username: @{username}\n"
         f"🆔 Payment ID: {payment_id}\n\n"
+        f"📝 Izoh:\n{user_note}\n\n"
         "Quyidagi tugmalar orqali to‘lovni tasdiqlang yoki rad eting."
     )
 
+    # =========================
+    # PHOTO RECEIPT
+    # =========================
     if message.photo is not None:
-        photo = cast(list[PhotoSize], message.photo)[-1]
+        photo = message.photo[-1]
         file_id = photo.file_id
 
         await create_payment(
@@ -61,14 +67,17 @@ async def receive_receipt(message: Message, state: FSMContext):
         )
 
         await message.bot.send_photo(
-            chat_id=ADMIN_ID,
+            chat_id=MONEY_ID,
             photo=file_id,
-            caption=caption,
+            caption=admin_caption,
             reply_markup=admin_approval_kb(payment_id),
         )
 
+    # =========================
+    # DOCUMENT / SCREENSHOT
+    # =========================
     else:
-        document = cast(Document, message.document)
+        document = message.document
         file_id = document.file_id
 
         await create_payment(
@@ -81,15 +90,16 @@ async def receive_receipt(message: Message, state: FSMContext):
         )
 
         await message.bot.send_document(
-            chat_id=ADMIN_ID,
+            chat_id=MONEY_ID,
             document=file_id,
-            caption=caption,
+            caption=admin_caption,
             reply_markup=admin_approval_kb(payment_id),
         )
 
     await state.clear()
 
+    # ✅ User confirmation
     await message.answer(
-        "⏳ To‘lovingiz jo'natildi.\n"
+        "⏳ To‘lovingiz qabul qilindi.\n"
         "Admin tomonidan tekshirilgach sizga xabar beriladi."
     )

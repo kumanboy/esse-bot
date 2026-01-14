@@ -1,8 +1,7 @@
 # bot/services/essay_checker.py
-
 import os
 import asyncio
-from typing import Optional, Any, List
+from typing import Any, Optional, List
 
 from dotenv import load_dotenv
 from openai import OpenAI, OpenAIError
@@ -302,13 +301,11 @@ def _get(obj: Any, key: str, default=None):
 
 def _extract_text(response: Any) -> Optional[str]:
     """
-    1) Eng oson: response.output_text (SDK agregat qiladi)
-    2) Agar bo‘sh bo‘lsa: response.output ichidan output_text/refusal bloklarini yig‘amiz
+    1) First try: response.output_text (SDK aggregated)
+    2) Fallback: parse response.output -> message -> content blocks
+       and collect output_text blocks
     """
     txt = _get(response, "output_text", None)
-
-    # Ba'zan noto‘g‘ri property olinib qolsa (masalan response.text config),
-    # output_text string bo‘lishi kerak. Shuning uchun qat’iy tekshiramiz.
     if isinstance(txt, str) and txt.strip():
         return txt.strip()
 
@@ -316,15 +313,14 @@ def _extract_text(response: Any) -> Optional[str]:
     items = _get(response, "output", None) or []
 
     for item in items:
-        item_type = _get(item, "type", None)
-        if item_type != "message":
+        if _get(item, "type", None) != "message":
             continue
 
         content = _get(item, "content", None) or []
         for block in content:
             btype = _get(block, "type", None)
 
-            if btype == "output_text":
+            if btype in ("output_text", "text"):
                 t = _get(block, "text", None)
                 if isinstance(t, str) and t.strip():
                     out_parts.append(t)
@@ -339,11 +335,7 @@ def _extract_text(response: Any) -> Optional[str]:
 
 
 async def check_essay(topic: str, essay_text: str) -> str:
-    """
-    Mavzu + esse matnini OpenAI'ga yuboradi va Uzbek tilida qat’iy baholashni qaytaradi.
-    Eslatma: GPT-5 oilasida temperature ishlatilmaydi (400 xato beradi).
-    """
-    user_prompt = f"""MAVZU:
+    user_input = f"""MAVZU:
 {topic}
 
 ESSE MATNI:
@@ -354,9 +346,9 @@ ESSE MATNI:
         return client.responses.create(
             model=OPENAI_MODEL,
             instructions=RUBRIC_PROMPT,
-            input=user_prompt,
-            reasoning={"effort": "low"},
-            max_output_tokens=3800,
+            input=user_input,
+            max_output_tokens=3800,  # ✅ correct for Responses API
+            extra_body={"reasoning": {"effort": "low"}},
         )
 
     try:
@@ -364,9 +356,11 @@ ESSE MATNI:
 
         if DEBUG_OPENAI:
             print("STATUS:", _get(response, "status", None))
-            print("INCOMPLETE:", _get(response, "incomplete_details", None))
-            agg = _get(response, "output_text", "") or ""
-            print("LEN:", len(agg) if isinstance(agg, str) else 0)
+            out = _get(response, "output", None) or []
+            print("OUTPUT_ITEMS:", len(out))
+            # show types quickly
+            types = [str(_get(it, "type", None)) for it in out[:10]]
+            print("OUTPUT_TYPES:", types)
 
         text = _extract_text(response)
         if not text:
@@ -375,9 +369,6 @@ ESSE MATNI:
         return text.strip()
 
     except OpenAIError as e:
-        # OpenAI SDK xatolari (429, 400, 401, 500...)
         raise RuntimeError(f"OPENAI ERROR: {e}") from e
-
     except Exception as e:
-        # boshqa texnik xatolar (parsing, thread, env, va h.k.)
         raise RuntimeError(f"OPENAI ERROR: {e}") from e
